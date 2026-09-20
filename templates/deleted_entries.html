@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deleted Entries | CV Builder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a class="brand" href="{{ url_for('web.index') }}">CV Builder</a>
+        <div class="nav-links">
+          <a href="{{ url_for('web.file_upload') }}">File upload</a>
+          <a href="{{ url_for('web.manual_entry') }}">Manual copy</a>
+          <a href="{{ url_for('web.new_entry') }}">New entry</a>
+          <a class="active" href="{{ url_for('web.deleted_entries') }}">Deleted entries</a>
+        </div>
+      </nav>
+
+      <main class="single-panel">
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Recycle area</p>
+              <h1>Deleted entries</h1>
+              <p class="subtitle">Entries stay here until you recover them.</p>
+            </div>
+            <button id="refreshDeleted" type="button" class="secondary compact-button">Refresh</button>
+          </div>
+          <div id="message" class="message" aria-live="polite"></div>
+          <div id="deletedEntries" class="saved-entries"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const deletedEntries = document.getElementById('deletedEntries');
+      const messageBox = document.getElementById('message');
+
+      function setMessage(text, isError = false) {
+        messageBox.textContent = text;
+        messageBox.classList.toggle('error', isError);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      function renderEntries(rows) {
+        deletedEntries.innerHTML = rows.map((row) => `
+          <article class="entry-card deleted-entry-card">
+            <h2>${escapeHtml(row.title)}</h2>
+            <p><strong>Rolle:</strong> ${escapeHtml(row.rolle)}</p>
+            <p><strong>Opgave:</strong> ${escapeHtml(row.opgave)}</p>
+            <p><strong>Resultat:</strong> ${escapeHtml(row.resultat)}</p>
+            <div class="entry-actions">
+              <span class="deleted-label">Deleted ${row.deleted_at ? new Date(row.deleted_at).toLocaleString() : ''}</span>
+              <button type="button" class="recover-entry" data-id="${row.id}">Recover</button>
+            </div>
+          </article>
+        `).join('');
+      }
+
+      async function loadDeletedEntries() {
+        try {
+          const response = await fetch('/api/items/deleted', { cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not load deleted entries.');
+
+          const rows = data.items || [];
+          if (!rows.length) {
+            deletedEntries.innerHTML = '<p>No deleted entries.</p>';
+            setMessage('The deleted entries area is empty.');
+            return;
+          }
+
+          renderEntries(rows);
+          setMessage(`Found ${rows.length} deleted ${rows.length === 1 ? 'entry' : 'entries'}.`);
+        } catch (error) {
+          deletedEntries.innerHTML = '<p>No deleted entries.</p>';
+          setMessage(error.message, true);
+        }
+      }
+
+      deletedEntries.addEventListener('click', async (event) => {
+        const button = event.target.closest('.recover-entry');
+        if (!button) return;
+
+        try {
+          const response = await fetch(`/api/items/${button.dataset.id}/recover`, { method: 'POST' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not recover entry.');
+          await loadDeletedEntries();
+          setMessage('Entry recovered.');
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      });
+
+      document.getElementById('refreshDeleted').addEventListener('click', loadDeletedEntries);
+      loadDeletedEntries();
+    </script>
+  </body>
+</html>

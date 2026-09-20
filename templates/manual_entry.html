@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Manual Copy | CV Builder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a class="brand" href="{{ url_for('web.index') }}">CV Builder</a>
+        <div class="nav-links">
+          <a href="{{ url_for('web.file_upload') }}">File upload</a>
+          <a class="active" href="{{ url_for('web.manual_entry') }}">Manual copy</a>
+          <a href="{{ url_for('web.new_entry') }}">New entry</a>
+          <a href="{{ url_for('web.deleted_entries') }}">Deleted entries</a>
+        </div>
+      </nav>
+
+      <main class="content-grid">
+        <section class="panel">
+          <p class="eyebrow">Import method</p>
+          <h1>Manual copy</h1>
+          <p class="subtitle">Copy a table from Word and paste it below. Use four columns in this order: Title, Rolle, Opgave, Resultat.</p>
+
+          <form id="manualForm" class="manual-form">
+            <label for="tableInput">Copied table</label>
+            <textarea id="tableInput" rows="11" placeholder="Title\tRolle\tOpgave\tResultat\nProject A\tDeveloper\tBuild a feature\tReleased successfully"></textarea>
+            <button type="submit">Read pasted table</button>
+          </form>
+
+          <div id="message" class="message" aria-live="polite"></div>
+
+          <div id="previewSection" class="preview hidden">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Ready to save</p>
+                <h2>Table preview</h2>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Rolle</th>
+                    <th>Opgave</th>
+                    <th>Resultat</th>
+                  </tr>
+                </thead>
+                <tbody id="previewBody"></tbody>
+              </table>
+            </div>
+            <button id="saveRows" type="button" class="secondary">Save to database</button>
+          </div>
+        </section>
+
+        <section class="panel list-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Database</p>
+              <h2>Saved entries</h2>
+            </div>
+            <button id="listAllRows" type="button" class="secondary compact-button">Refresh</button>
+          </div>
+          <div id="savedEntries" class="saved-entries"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const previewSection = document.getElementById('previewSection');
+      const previewBody = document.getElementById('previewBody');
+      const messageBox = document.getElementById('message');
+      const savedEntries = document.getElementById('savedEntries');
+      let extractedRows = [];
+
+      function setMessage(text, isError = false) {
+        messageBox.textContent = text;
+        messageBox.classList.toggle('error', isError);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      function renderEntries(rows) {
+        savedEntries.innerHTML = rows.map((row) => `
+          <article class="entry-card">
+            <h3>${escapeHtml(row.title)}</h3>
+            <p><strong>Rolle:</strong> ${escapeHtml(row.rolle)}</p>
+            <p><strong>Opgave:</strong> ${escapeHtml(row.opgave)}</p>
+            <p><strong>Resultat:</strong> ${escapeHtml(row.resultat)}</p>
+            <div class="entry-actions">
+              <label class="lock-control">
+                <input type="checkbox" class="lock-entry" data-id="${row.id}" ${row.locked ? 'checked' : ''} />
+                <span>Locked</span>
+              </label>
+              <button type="button" class="delete-entry danger" data-id="${row.id}" ${row.locked ? 'disabled' : ''}>Delete</button>
+            </div>
+          </article>
+        `).join('');
+      }
+
+      async function loadEntries() {
+        try {
+          const response = await fetch('/api/items/all', { cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not load saved rows.');
+
+          const rows = Array.isArray(data) ? data : (data.items || []);
+          if (!rows.length) {
+            savedEntries.innerHTML = '<p>No saved entries yet.</p>';
+            setMessage('No saved rows found in the database.');
+            return;
+          }
+
+          renderEntries(rows);
+          setMessage(`Loaded ${rows.length} rows from the database.`);
+        } catch (error) {
+          savedEntries.innerHTML = '<p>No saved entries yet.</p>';
+          setMessage(error.message, true);
+        }
+      }
+
+      function parseTable(text) {
+        const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const rows = lines.map((line) => {
+          const cells = line.includes('\t') ? line.split('\t') : line.split('|');
+          return cells.map((cell) => cell.trim());
+        });
+
+        const firstRow = rows[0] || [];
+        const firstRowText = firstRow.join(' ').toLowerCase();
+        const hasHeader = ['title', 'rolle', 'opgave', 'resultat'].every((label) => firstRowText.includes(label));
+        const dataRows = hasHeader ? rows.slice(1) : rows;
+
+        return dataRows
+          .filter((row) => row.length >= 4 && row.slice(0, 4).every(Boolean))
+          .map((row) => ({
+            title: row[0],
+            rolle: row[1],
+            opgave: row[2],
+            resultat: row[3],
+          }));
+      }
+
+      function renderPreview(rows) {
+        previewBody.innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.title)}</td>
+            <td>${escapeHtml(row.rolle)}</td>
+            <td>${escapeHtml(row.opgave)}</td>
+            <td>${escapeHtml(row.resultat)}</td>
+          </tr>
+        `).join('');
+        previewSection.classList.remove('hidden');
+      }
+
+      document.getElementById('manualForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        extractedRows = parseTable(document.getElementById('tableInput').value);
+        if (!extractedRows.length) {
+          previewSection.classList.add('hidden');
+          setMessage('Paste at least one complete row with four columns.', true);
+          return;
+        }
+
+        renderPreview(extractedRows);
+        setMessage(`Found ${extractedRows.length} rows to save.`);
+      });
+
+      document.getElementById('saveRows').addEventListener('click', async () => {
+        if (!extractedRows.length) {
+          setMessage('No rows available to save yet.', true);
+          return;
+        }
+
+        try {
+          setMessage('Saving rows to the database...');
+          const response = await fetch('/api/docx/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rows: extractedRows }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not save rows.');
+          await loadEntries();
+          previewSection.classList.add('hidden');
+          document.getElementById('tableInput').value = '';
+          extractedRows = [];
+          setMessage(`Saved ${data.saved} rows.`);
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      });
+
+      savedEntries.addEventListener('change', async (event) => {
+        const checkbox = event.target.closest('.lock-entry');
+        if (!checkbox) return;
+
+        try {
+          const response = await fetch(`/api/items/${checkbox.dataset.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locked: checkbox.checked }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not update lock.');
+          await loadEntries();
+        } catch (error) {
+          checkbox.checked = !checkbox.checked;
+          setMessage(error.message, true);
+        }
+      });
+
+      savedEntries.addEventListener('click', async (event) => {
+        const button = event.target.closest('.delete-entry');
+        if (!button || button.disabled) return;
+
+        try {
+          const response = await fetch(`/api/items/${button.dataset.id}`, { method: 'DELETE' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not delete entry.');
+          await loadEntries();
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      });
+
+      document.getElementById('listAllRows').addEventListener('click', loadEntries);
+      loadEntries();
+    </script>
+  </body>
+</html>

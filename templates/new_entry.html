@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Entry | CV Builder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a class="brand" href="{{ url_for('web.index') }}">CV Builder</a>
+        <div class="nav-links">
+          <a href="{{ url_for('web.file_upload') }}">File upload</a>
+          <a href="{{ url_for('web.manual_entry') }}">Manual copy</a>
+          <a class="active" href="{{ url_for('web.new_entry') }}">New entry</a>
+          <a href="{{ url_for('web.deleted_entries') }}">Deleted entries</a>
+        </div>
+      </nav>
+
+      <main class="content-grid">
+        <section class="panel">
+          <p class="eyebrow">Create one row</p>
+          <h1>New entry</h1>
+          <p class="subtitle">Fill out the four fields and save one CV entry to the database.</p>
+
+          <form id="entryForm" class="entry-form">
+            <div class="field-grid">
+              <div class="field-group">
+                <label for="title">Title</label>
+                <input id="title" name="title" type="text" required />
+              </div>
+              <div class="field-group">
+                <label for="rolle">Rolle</label>
+                <input id="rolle" name="rolle" type="text" required />
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label for="opgave">Opgave</label>
+              <textarea id="opgave" name="opgave" rows="5" required></textarea>
+            </div>
+
+            <div class="field-group">
+              <label for="resultat">Resultat</label>
+              <textarea id="resultat" name="resultat" rows="5" required></textarea>
+            </div>
+
+            <button type="submit">Save entry</button>
+          </form>
+          <div id="message" class="message" aria-live="polite"></div>
+        </section>
+
+        <section class="panel list-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Database</p>
+              <h2>Saved entries</h2>
+            </div>
+            <button id="listAllRows" type="button" class="secondary compact-button">Refresh</button>
+          </div>
+          <div id="savedEntries" class="saved-entries"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const entryForm = document.getElementById('entryForm');
+      const messageBox = document.getElementById('message');
+      const savedEntries = document.getElementById('savedEntries');
+
+      function setMessage(text, isError = false) {
+        messageBox.textContent = text;
+        messageBox.classList.toggle('error', isError);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      function renderEntries(rows) {
+        savedEntries.innerHTML = rows.map((row) => `
+          <article class="entry-card">
+            <h3>${escapeHtml(row.title)}</h3>
+            <p><strong>Rolle:</strong> ${escapeHtml(row.rolle)}</p>
+            <p><strong>Opgave:</strong> ${escapeHtml(row.opgave)}</p>
+            <p><strong>Resultat:</strong> ${escapeHtml(row.resultat)}</p>
+            <div class="entry-actions">
+              <label class="lock-control">
+                <input type="checkbox" class="lock-entry" data-id="${row.id}" ${row.locked ? 'checked' : ''} />
+                <span>Locked</span>
+              </label>
+              <button type="button" class="delete-entry danger" data-id="${row.id}" ${row.locked ? 'disabled' : ''}>Delete</button>
+            </div>
+          </article>
+        `).join('');
+      }
+
+      async function loadEntries() {
+        try {
+          const response = await fetch('/api/items/all', { cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not load saved rows.');
+
+          const rows = Array.isArray(data) ? data : (data.items || []);
+          if (!rows.length) {
+            savedEntries.innerHTML = '<p>No saved entries yet.</p>';
+            return;
+          }
+
+          renderEntries(rows);
+        } catch (error) {
+          savedEntries.innerHTML = '<p>No saved entries yet.</p>';
+          setMessage(error.message, true);
+        }
+      }
+
+      entryForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = Object.fromEntries(new FormData(entryForm).entries());
+
+        try {
+          setMessage('Saving entry...');
+          const response = await fetch('/api/items/all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not save entry.');
+
+          entryForm.reset();
+          await loadEntries();
+          setMessage('Entry saved successfully.');
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      });
+
+      savedEntries.addEventListener('change', async (event) => {
+        const checkbox = event.target.closest('.lock-entry');
+        if (!checkbox) return;
+
+        try {
+          const response = await fetch(`/api/items/${checkbox.dataset.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locked: checkbox.checked }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not update lock.');
+          await loadEntries();
+        } catch (error) {
+          checkbox.checked = !checkbox.checked;
+          setMessage(error.message, true);
+        }
+      });
+
+      savedEntries.addEventListener('click', async (event) => {
+        const button = event.target.closest('.delete-entry');
+        if (!button || button.disabled) return;
+
+        try {
+          const response = await fetch(`/api/items/${button.dataset.id}`, { method: 'DELETE' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not delete entry.');
+          await loadEntries();
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      });
+
+      document.getElementById('listAllRows').addEventListener('click', loadEntries);
+      loadEntries();
+    </script>
+  </body>
+</html>

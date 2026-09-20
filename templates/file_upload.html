@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>File Upload | CV Builder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a class="brand" href="{{ url_for('web.index') }}">CV Builder</a>
+        <div class="nav-links">
+          <a class="active" href="{{ url_for('web.file_upload') }}">File upload</a>
+          <a href="{{ url_for('web.manual_entry') }}">Manual copy</a>
+          <a href="{{ url_for('web.new_entry') }}">New entry</a>
+          <a href="{{ url_for('web.deleted_entries') }}">Deleted entries</a>
+        </div>
+      </nav>
+
+      <main class="content-grid">
+        <section class="panel">
+          <p class="eyebrow">Import method</p>
+          <h1>File upload</h1>
+          <p class="subtitle">Upload a DOCX file containing your CV table.</p>
+
+          <form id="docxForm" class="upload-form">
+            <div id="dropZone" class="drop-zone" tabindex="0" aria-label="Drag and drop DOCX file here">
+              <input type="file" id="docxFile" accept=".docx" />
+              <div class="drop-zone-text">
+                <strong>Drag and drop a DOCX here</strong>
+                <span>or click to browse</span>
+              </div>
+            </div>
+            <button type="submit">Read table</button>
+          </form>
+
+          <div id="message" class="message" aria-live="polite"></div>
+
+          <div id="previewSection" class="preview hidden">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Ready to save</p>
+                <h2>Table preview</h2>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Rolle</th>
+                    <th>Opgave</th>
+                    <th>Resultat</th>
+                  </tr>
+                </thead>
+                <tbody id="previewBody"></tbody>
+              </table>
+            </div>
+            <button id="saveRows" type="button" class="secondary">Save to database</button>
+          </div>
+        </section>
+
+        <section class="panel list-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Database</p>
+              <h2>Saved entries</h2>
+            </div>
+            <button id="listAllRows" type="button" class="secondary compact-button">Refresh</button>
+          </div>
+          <div id="savedEntries" class="saved-entries"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const previewSection = document.getElementById('previewSection');
+      const previewBody = document.getElementById('previewBody');
+      const messageBox = document.getElementById('message');
+      const savedEntries = document.getElementById('savedEntries');
+      let extractedRows = [];
+
+      function setMessage(text, isError = false) {
+        messageBox.textContent = text;
+        messageBox.classList.toggle('error', isError);
+      }
+
+      function renderEntries(rows) {
+        savedEntries.innerHTML = rows.map((row) => `
+          <article class="entry-card">
+            <h3>${row.title}</h3>
+            <p><strong>Rolle:</strong> ${row.rolle}</p>
+            <p><strong>Opgave:</strong> ${row.opgave}</p>
+            <p><strong>Resultat:</strong> ${row.resultat}</p>
+            <div class="entry-actions">
+              <label class="lock-control">
+                <input type="checkbox" class="lock-entry" data-id="${row.id}" ${row.locked ? 'checked' : ''} />
+                <span>Locked</span>
+              </label>
+              <button type="button" class="delete-entry danger" data-id="${row.id}" ${row.locked ? 'disabled' : ''}>Delete</button>
+            </div>
+          </article>
+        `).join('');
+      }
+
+      async function loadEntries() {
+        try {
+          const response = await fetch('/api/items/all', { cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not load saved rows.');
+
+          const rows = Array.isArray(data) ? data : (data.items || []);
+          if (!rows.length) {
+            savedEntries.innerHTML = '<p>No saved entries yet.</p>';
+            setMessage('No saved rows found in the database.');
+            return;
+          }
+
+          renderEntries(rows);
+          setMessage(`Loaded ${rows.length} rows from the database.`);
+        } catch (error) {
+          savedEntries.innerHTML = '<p>No saved entries yet.</p>';
+          setMessage(error.message, true);
+        }
+      }
+
+      function renderPreview(rows) {
+        previewBody.innerHTML = rows.map((row) => `
+          <tr>
+            <td>${row.title}</td>
+            <td>${row.rolle}</td>
+            <td>${row.opgave}</td>
+            <td>${row.resultat}</td>
+          </tr>
+        `).join('');
+        previewSection.classList.remove('hidden');
+      }
+
+      const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('docxFile');
+
+      function handleSelectedFile(file) {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.docx')) {
+          setMessage('Only .docx files are supported.', true);
+          return;
+        }
+
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInput.files = dataTransfer.files;
+        return file;
+      }
+
+      ['dragenter', 'dragover'].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropZone.classList.add('dragover');
+        });
+      });
+
+      ['dragleave', 'drop'].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropZone.classList.remove('dragover');
+        });
+      });
+
+      dropZone.addEventListener('drop', (event) => {
+        const selected = handleSelectedFile(event.dataTransfer.files[0]);
+        if (selected) setMessage(`Selected: ${selected.name}`);
+      });
+
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files[0]) setMessage(`Selected: ${fileInput.files[0].name}`);
+      });
+
+      dropZone.addEventListener('click', () => fileInput.click());
+      dropZone.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          fileInput.click();
+        }
+      });
+
+      document.getElementById('docxForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const file = fileInput.files[0];
+        if (!file) {
+          setMessage('Please choose a DOCX file first.', true);
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+          setMessage('Reading DOCX table...');
+          const response = await fetch('/api/docx/import', { method: 'POST', body: formData });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not read the DOCX file.');
+          extractedRows = data.rows || [];
+          renderPreview(extractedRows);
+          setMessage(`Found ${extractedRows.length} rows to save.`);
+        } catch (error) {
+          setMessage(error.message, true);
+          previewSection.classList.add('hidden');
+        }
+      });
+
+      document.getElementById('saveRows').addEventListener('click', async () => {
+        if (!extractedRows.length) {
+          setMessage('No rows available to save yet.', true);
+          return;
+        }
+
+        try {
+          setMessage('Saving rows to the database...');
+          const response = await fetch('/api/docx/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rows: extractedRows }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not save rows.');
+          await loadEntries();
+          previewSection.classList.add('hidden');
+          fileInput.value = '';
+          extractedRows = [];
+          setMessage(`Saved ${data.saved} rows.`);
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      });
+
+      savedEntries.addEventListener('change', async (event) => {
+        const checkbox = event.target.closest('.lock-entry');
+        if (!checkbox) return;
+
+        try {
+          const response = await fetch(`/api/items/${checkbox.dataset.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locked: checkbox.checked }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not update lock.');
+          await loadEntries();
+        } catch (error) {
+          checkbox.checked = !checkbox.checked;
+          setMessage(error.message, true);
+        }
+      });
+
+      savedEntries.addEventListener('click', async (event) => {
+        const button = event.target.closest('.delete-entry');
+        if (!button || button.disabled) return;
+
+        try {
+          const response = await fetch(`/api/items/${button.dataset.id}`, { method: 'DELETE' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'Could not delete entry.');
+          await loadEntries();
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      });
+
+      document.getElementById('listAllRows').addEventListener('click', loadEntries);
+      loadEntries();
+    </script>
+  </body>
+</html>

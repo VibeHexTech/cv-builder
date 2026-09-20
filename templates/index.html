@@ -7,153 +7,44 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
   <body>
-    <div class="page-shell">
-      <section class="panel upload-panel">
-        <h1>CV Builder</h1>
-        <p class="subtitle">Import a DOCX table and save rows to the PostgreSQL database.</p>
-
-        <form id="docxForm" class="upload-form">
-          <label class="file-input-wrap">
-            <span>Upload DOCX</span>
-            <input type="file" id="docxFile" accept=".docx" />
-          </label>
-          <button type="submit">Read table</button>
-        </form>
-
-        <div id="message" class="message" aria-live="polite"></div>
-
-        <div id="previewSection" class="preview hidden">
-          <h2>Preview</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Opgave</th>
-                <th>Rolle</th>
-                <th>Resultat</th>
-              </tr>
-            </thead>
-            <tbody id="previewBody"></tbody>
-          </table>
-          <button id="saveRows" type="button" class="secondary">Save to database</button>
+    <div class="page-shell home-shell">
+      <header class="site-header">
+        <div>
+          <p class="eyebrow">CV Builder</p>
+          <h1>Choose how to add your CV rows</h1>
+          <p class="subtitle">Import a DOCX file or paste a table copied from Word.</p>
         </div>
-      </section>
+      </header>
 
-      <section class="panel list-panel">
-        <h2>Saved entries</h2>
-        <div id="savedEntries" class="saved-entries"></div>
-      </section>
+      <main class="choice-grid">
+        <a class="choice-card" href="{{ url_for('web.file_upload') }}">
+          <span class="choice-number">01</span>
+          <h2>File upload</h2>
+          <p>Read a DOCX table and review its rows before saving them.</p>
+          <span class="choice-link">Open file upload</span>
+        </a>
+
+        <a class="choice-card choice-card-alt" href="{{ url_for('web.manual_entry') }}">
+          <span class="choice-number">02</span>
+          <h2>Manual copy</h2>
+          <p>Paste a table copied from Word when you do not have a DOCX file.</p>
+          <span class="choice-link">Open manual copy</span>
+        </a>
+
+        <a class="choice-card choice-card-new" href="{{ url_for('web.new_entry') }}">
+          <span class="choice-number">03</span>
+          <h2>New entry</h2>
+          <p>Fill out one CV row yourself with separate fields.</p>
+          <span class="choice-link">Create new entry</span>
+        </a>
+
+        <a class="choice-card choice-card-trash" href="{{ url_for('web.deleted_entries') }}">
+          <span class="choice-number">04</span>
+          <h2>Deleted entries</h2>
+          <p>Review removed rows and recover anything you still need.</p>
+          <span class="choice-link">Open deleted entries</span>
+        </a>
+      </main>
     </div>
-
-    <script>
-      const previewSection = document.getElementById('previewSection');
-      const previewBody = document.getElementById('previewBody');
-      const messageBox = document.getElementById('message');
-      const savedEntries = document.getElementById('savedEntries');
-      let extractedRows = [];
-
-      function setMessage(text, isError = false) {
-        messageBox.textContent = text;
-        messageBox.classList.toggle('error', isError);
-      }
-
-      async function loadEntries() {
-        const response = await fetch('/api/items');
-        const rows = await response.json();
-
-        if (!Array.isArray(rows) || rows.length === 0) {
-          savedEntries.innerHTML = '<p>No saved entries yet.</p>';
-          return;
-        }
-
-        savedEntries.innerHTML = rows.map((row) => `
-          <article class="entry-card">
-            <h3>${row.title}</h3>
-            <p><strong>Opgave:</strong> ${row.opgave}</p>
-            <p><strong>Rolle:</strong> ${row.rolle}</p>
-            <p><strong>Resultat:</strong> ${row.resultat}</p>
-          </article>
-        `).join('');
-      }
-
-      function renderPreview(rows) {
-        previewBody.innerHTML = rows.map((row) => `
-          <tr>
-            <td>${row.title}</td>
-            <td>${row.opgave}</td>
-            <td>${row.rolle}</td>
-            <td>${row.resultat}</td>
-          </tr>
-        `).join('');
-        previewSection.classList.remove('hidden');
-      }
-
-      document.getElementById('docxForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const fileInput = document.getElementById('docxFile');
-        const file = fileInput.files[0];
-
-        if (!file) {
-          setMessage('Please choose a DOCX file first.', true);
-          return;
-        }
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        try {
-          setMessage('Reading DOCX table...');
-          const response = await fetch('/api/docx/import', {
-            method: 'POST',
-            body: formData,
-          });
-
-          const data = await response.json();
-          if (!response.ok) {
-            throw new Error(data.message || 'Could not read the DOCX file.');
-          }
-
-          extractedRows = data.rows || [];
-          renderPreview(extractedRows);
-          setMessage(`Found ${extractedRows.length} rows to save.`);
-        } catch (error) {
-          setMessage(error.message, true);
-          previewSection.classList.add('hidden');
-        }
-      });
-
-      document.getElementById('saveRows').addEventListener('click', async () => {
-        if (!extractedRows.length) {
-          setMessage('No rows available to save yet.', true);
-          return;
-        }
-
-        try {
-          setMessage('Saving rows to the database...');
-          const response = await fetch('/api/docx/save', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ rows: extractedRows }),
-          });
-
-          const data = await response.json();
-          if (!response.ok) {
-            throw new Error(data.message || 'Could not save rows.');
-          }
-
-          setMessage(`Saved ${data.saved} rows.`);
-          await loadEntries();
-          previewSection.classList.add('hidden');
-          document.getElementById('docxFile').value = '';
-          extractedRows = [];
-        } catch (error) {
-          setMessage(error.message, true);
-        }
-      });
-
-      loadEntries();
-    </script>
   </body>
 </html>
